@@ -1,11 +1,11 @@
 const socket = io();
 
-// Initialize map with default city coordinates (fallback)
+// Initialize map (default view)
 const map = L.map('map').setView([14.0933849, 121.0233679], 15);
 
-// Terrain tiles from OpenTopoMap
-L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
-    attribution: 'Map data: © OpenTopoMap contributors',
+// Original OpenStreetMap tiles
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors',
 }).addTo(map);
 
 // Track markers and colors
@@ -51,8 +51,10 @@ if (navigator.geolocation) {
 socket.on('receive-location', (data) => {
     const { id, lat, lng } = data;
 
+    // Assign a random color for new users
     if (!colors[id]) colors[id] = getRandomColor();
 
+    // Create or update markers
     if (!markers[id]) {
         markers[id] = L.circleMarker([lat, lng], {
             radius: 10,
