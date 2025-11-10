@@ -1,34 +1,43 @@
 const socket = io();
 
-// Initialize map
-const map = L.map('map').setView([0, 0], 15);
+// Initialize map with default city coordinates (fallback)
+const map = L.map('map').setView([14.0933849, 121.0233679], 15);
 
-// Add OpenStreetMap tiles
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap contributors',
+// Terrain tiles from OpenTopoMap
+L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+    attribution: 'Map data: © OpenTopoMap contributors',
 }).addTo(map);
 
-// Keep track of all user markers and colors
+// Track markers and colors
 const markers = {};
-const colors = {};  // store color for each user
+const colors = {};
 
 // Function to generate random color
 function getRandomColor() {
     const letters = '0123456789ABCDEF';
     let color = '#';
-    for (let i = 0; i < 6; i++) {
+    for (let i=0; i<6; i++) {
         color += letters[Math.floor(Math.random() * 16)];
     }
     return color;
 }
 
-// Watch user location
+// Center map on first location only
+let firstUpdate = true;
+
+// Watch user's geolocation
 if (navigator.geolocation) {
     navigator.geolocation.watchPosition(
         (position) => {
             const { latitude, longitude } = position.coords;
 
-            // Send your position to server
+            // Center map on first update
+            if (firstUpdate) {
+                map.setView([latitude, longitude], 15);
+                firstUpdate = false;
+            }
+
+            // Send location to server
             socket.emit('send-location', { lat: latitude, lng: longitude });
         },
         (error) => console.error('Geolocation error:', error),
@@ -38,16 +47,12 @@ if (navigator.geolocation) {
     alert('Geolocation not supported by this browser.');
 }
 
-// When receiving other users’ positions
+// Receive other users' locations
 socket.on('receive-location', (data) => {
     const { id, lat, lng } = data;
 
-    // Assign a color if this user doesn't have one yet
-    if (!colors[id]) {
-        colors[id] = getRandomColor();
-    }
+    if (!colors[id]) colors[id] = getRandomColor();
 
-    // Create a colored circle marker if it doesn't exist
     if (!markers[id]) {
         markers[id] = L.circleMarker([lat, lng], {
             radius: 10,
@@ -57,12 +62,11 @@ socket.on('receive-location', (data) => {
         }).addTo(map);
         markers[id].bindPopup(`Bus ID: ${id}`);
     } else {
-        // Update position
         markers[id].setLatLng([lat, lng]);
     }
 });
 
-// Remove marker when a user disconnects
+// Remove marker when user disconnects
 socket.on('user-disconnected', (id) => {
     if (markers[id]) {
         map.removeLayer(markers[id]);
