@@ -1,9 +1,7 @@
 const socket = io();
 
-// Initialize map (default view)
+// Initialize map
 const map = L.map('map').setView([14.0933849, 121.0233679], 15);
-
-// Original OpenStreetMap tiles
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap contributors',
 }).addTo(map);
@@ -11,6 +9,9 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 // Track markers and colors
 const markers = {};
 const colors = {};
+
+// Track users in live panel
+const liveUsersContainer = document.getElementById('live-users');
 
 // Function to generate random color
 function getRandomColor() {
@@ -22,39 +23,45 @@ function getRandomColor() {
     return color;
 }
 
-// Center map on first location only
+// Function to update live users panel
+function updateLiveUsers() {
+    liveUsersContainer.innerHTML = '';
+    for (const id in colors) {
+        const badge = document.createElement('div');
+        badge.className = 'user-badge';
+        badge.style.backgroundColor = colors[id];
+        badge.textContent = id; // Or "Bus 1", "Bus 2", etc.
+        liveUsersContainer.appendChild(badge);
+    }
+}
+
+// Center map on first location
 let firstUpdate = true;
 
-// Watch user's geolocation
+// Watch user's location
 if (navigator.geolocation) {
     navigator.geolocation.watchPosition(
         (position) => {
             const { latitude, longitude } = position.coords;
 
-            // Center map on first update
             if (firstUpdate) {
                 map.setView([latitude, longitude], 15);
                 firstUpdate = false;
             }
 
-            // Send location to server
             socket.emit('send-location', { lat: latitude, lng: longitude });
         },
         (error) => console.error('Geolocation error:', error),
         { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
     );
-} else {
-    alert('Geolocation not supported by this browser.');
 }
 
-// Receive other users' locations
+// Receive location updates from server
 socket.on('receive-location', (data) => {
     const { id, lat, lng } = data;
 
-    // Assign a random color for new users
     if (!colors[id]) colors[id] = getRandomColor();
 
-    // Create or update markers
     if (!markers[id]) {
         markers[id] = L.circleMarker([lat, lng], {
             radius: 10,
@@ -66,6 +73,8 @@ socket.on('receive-location', (data) => {
     } else {
         markers[id].setLatLng([lat, lng]);
     }
+
+    updateLiveUsers();
 });
 
 // Remove marker when user disconnects
@@ -75,4 +84,5 @@ socket.on('user-disconnected', (id) => {
         delete markers[id];
         delete colors[id];
     }
+    updateLiveUsers();
 });
