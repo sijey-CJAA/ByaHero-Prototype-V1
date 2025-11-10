@@ -6,36 +6,34 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap contributors',
 }).addTo(map);
 
-// Track markers and colors
+// Track markers, colors, and names
 const markers = {};
 const colors = {};
+const names = {}; // socket.id -> bus name
 
-// Track users in live panel
 const liveUsersContainer = document.getElementById('live-users');
 
-// Function to generate random color
+// Random color generator
 function getRandomColor() {
     const letters = '0123456789ABCDEF';
     let color = '#';
-    for (let i=0; i<6; i++) {
-        color += letters[Math.floor(Math.random() * 16)];
-    }
+    for (let i=0; i<6; i++) color += letters[Math.floor(Math.random()*16)];
     return color;
 }
 
-// Function to update live users panel
+// Update live users panel
 function updateLiveUsers() {
     liveUsersContainer.innerHTML = '';
     for (const id in colors) {
         const badge = document.createElement('div');
         badge.className = 'user-badge';
         badge.style.backgroundColor = colors[id];
-        badge.textContent = id; // Or "Bus 1", "Bus 2", etc.
+        badge.textContent = names[id]; // use bus name
         liveUsersContainer.appendChild(badge);
     }
 }
 
-// Center map on first location
+// First location center
 let firstUpdate = true;
 
 // Watch user's location
@@ -43,12 +41,7 @@ if (navigator.geolocation) {
     navigator.geolocation.watchPosition(
         (position) => {
             const { latitude, longitude } = position.coords;
-
-            if (firstUpdate) {
-                map.setView([latitude, longitude], 15);
-                firstUpdate = false;
-            }
-
+            if (firstUpdate) { map.setView([latitude, longitude], 15); firstUpdate = false; }
             socket.emit('send-location', { lat: latitude, lng: longitude });
         },
         (error) => console.error('Geolocation error:', error),
@@ -56,11 +49,16 @@ if (navigator.geolocation) {
     );
 }
 
-// Receive location updates from server
+// Receive assigned name from server
+let myName = '';
+socket.on('assign-name', (name) => { myName = name; });
+
+// Receive location updates
 socket.on('receive-location', (data) => {
-    const { id, lat, lng } = data;
+    const { id, lat, lng, name } = data;
 
     if (!colors[id]) colors[id] = getRandomColor();
+    names[id] = name;
 
     if (!markers[id]) {
         markers[id] = L.circleMarker([lat, lng], {
@@ -69,20 +67,17 @@ socket.on('receive-location', (data) => {
             fillColor: colors[id],
             fillOpacity: 0.8
         }).addTo(map);
-        markers[id].bindPopup(`Bus ID: ${id}`);
+        markers[id].bindPopup(`${name}`);
     } else {
         markers[id].setLatLng([lat, lng]);
+        markers[id].bindPopup(`${name}`);
     }
 
     updateLiveUsers();
 });
 
-// Remove marker when user disconnects
+// Handle disconnect
 socket.on('user-disconnected', (id) => {
-    if (markers[id]) {
-        map.removeLayer(markers[id]);
-        delete markers[id];
-        delete colors[id];
-    }
+    if (markers[id]) { map.removeLayer(markers[id]); delete markers[id]; delete colors[id]; delete names[id]; }
     updateLiveUsers();
 });
