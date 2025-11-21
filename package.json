@@ -1,26 +1,21 @@
 {
-  "name": "byahero-prototype-v1",
+  "name": "byahero-live-bus-tracker",
   "version": "1.0.0",
-  "description": "",
+  "description": "Prototype live bus tracker using Node/Express + Socket.IO + Leaflet (organized by role)",
   "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev": "nodemon server.js"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/sijey-CJAA/ByaHero-Prototype-V1.git"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
-  "bugs": {
-    "url": "https://github.com/sijey-CJAA/ByaHero-Prototype-V1/issues"
-  },
-  "homepage": "https://github.com/sijey-CJAA/ByaHero-Prototype-V1#readme",
   "dependencies": {
-    "express": "^5.1.0",
-    "socket.io": "^4.8.1"
-  }
+    "express": "^4.18.2",
+    "socket.io": "^4.7.1"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.22"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT"
 }
