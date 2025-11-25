@@ -1,75 +1,117 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>ByaHero</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>ByaHero</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css"
+        integrity="sha512-Zcn6bjR/8RZbLEpLIeOwNtzREBAJnUKESxces60Mpoj+2okopSAcSUIUOseddDm0cxnGQzxIR7vJgsLZbdLE3w=="
+        crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <style>
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+            font-family: Arial, sans-serif;
+        }
 
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css"
-    integrity="sha512-Zcn6bjR/8RZbLEpLIeOwNtzREBAJnUKESxces60Mpoj+2okopSAcSUIUOseddDm0cxnGQzxIR7vJgsLZbdLE3w=="
-    crossorigin="anonymous" referrerpolicy="no-referrer"/>
+        body {
+            display: flex;
+            flex-direction: column;
+        }
 
-  <style>
-    html, body { height: 100%; margin: 0; font-family: Arial, sans-serif; }
-    body { display: flex; flex-direction: column; }
-    nav { background: #2c3e50; color: white; padding: 12px 20px; font-size: 18px; }
-    #top { padding: 12px 20px; display:flex; align-items:center; gap:12px; }
-    .btn { padding:10px 14px; border-radius:6px; border:none; cursor:pointer; color:white; background:#2c3e50; }
-    .btn.secondary { background:#3498db; }
-    #role-choices { display:flex; gap:12px; align-items:center; }
-    #map { flex:1; min-height:300px; }
-    #info { padding:10px 20px; background:#f6f7f8; }
-    .link-box { background:#fff; border:1px solid #ddd; padding:8px 12px; border-radius:6px; display:inline-block; }
-    #live-users { background: #ecf0f1; padding: 10px 20px; display:flex; gap:10px; flex-wrap:wrap; }
-    .small { font-size:12px; color:#666; }
-  </style>
+        nav {
+            background: #2c3e50;
+            color: white;
+            padding: 12px 20px;
+            font-size: 18px;
+        }
+
+        #top {
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .btn {
+            padding: 10px 14px;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            color: white;
+            background: #2c3e50;
+        }
+
+        .btn.secondary {
+            background: #3498db;
+        }
+
+        #role-choices {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        #map {
+            flex: 1;
+            min-height: 300px;
+        }
+
+        #info {
+            padding: 10px 20px;
+            background: #f6f7f8;
+        }
+
+        .link-box {
+            background: #fff;
+            border: 1px solid #ddd;
+            padding: 8px 12px;
+            border-radius: 6px;
+            display: inline-block;
+        }
+
+        #live-users {
+            background: #ecf0f1;
+            padding: 10px 20px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .small {
+            font-size: 12px;
+            color: #666;
+        }
+    </style>
 </head>
+
 <body>
-  <nav>ByaHero: PROTOTYPE V2</nav>
-
-  <div id="top">
-    <div id="role-choices">
-      <button id="choose-bus" class="btn">I am a Bus</button>
-      <button id="choose-customer" class="btn secondary">I am a Customer</button>
+    <nav>ByaHero: PROTOTYPE V2</nav>
+    <div id="top">
+        <div id="role-choices"> <button id="choose-bus" class="btn">I am a Bus</button> <button id="choose-customer"
+                class="btn secondary">I am a Customer</button> </div>
+        <div style="margin-left:auto;">
+            <div class="link-box small" id="lan-url">Detecting LAN URL...</div>
+        </div>
     </div>
-    <div style="margin-left:auto;">
-      <div class="link-box small" id="lan-url">Detecting LAN URL...</div>
+    <div id="info" style="display:none;">
+        <div id="mode-title"><strong></strong></div>
+        <div id="controls" style="margin-top:8px;"></div>
     </div>
-  </div>
-
-  <div id="info" style="display:none;">
-    <div id="mode-title"><strong></strong></div>
-    <div id="controls" style="margin-top:8px;"></div>
-  </div>
-
-  <div id="live-users"></div>
-  <div id="map"></div>
-
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"
-    integrity="sha512-BwHfrr4c9kmRkLw6iXFdzcdWV/PGkVgiIyIWLLlTSXzWQzxuSg4DiQUCpauz/EWjgk5TYQqX/kvn9pG1NpYfqg=="
-    crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-
-  <script src="/socket.io/socket.io.js"></script>
-
-  <script src="js/common.js"></script>
-  <script src="js/map.js"></script>
-  <script src="js/bus.js"></script>
-  <script src="js/customer.js"></script>
-  <script src="js/main.js"></script>
-
-  <script>
-    (async function(){
-      try {
-        const r = await fetch('/info');
-        if (!r.ok) throw new Error('no info');
-        const info = await r.json();
-        const el = document.getElementById('lan-url');
-        if (info && info.url) el.textContent = info.url;
-        else el.textContent = 'Open http://localhost:3000 on this machine.';
-      } catch (e) {
-        document.getElementById('lan-url').textContent = 'Failed to detect LAN URL';
-      }
-    })();
-  </script>
+    <div id="live-users"></div>
+    <div id="map"></div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"
+        integrity="sha512-BwHfrr4c9kmRkLw6iXFdzcdWV/PGkVgiIyIWLLlTSXzWQzxuSg4DiQUCpauz/EWjgk5TYQqX/kvn9pG1NpYfqg=="
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="js/common.js"></script>
+    <script src="js/map.js"></script>
+    <script src="js/bus.js"></script>
+    <script src="js/customer.js"></script>
+    <script src="js/main.js"></script>
+    <script> (async function () { try { const r = await fetch('/info'); if (!r.ok) throw new Error('no info'); const info = await r.json(); const el = document.getElementById('lan-url'); if (info && info.url) el.textContent = info.url; else el.textContent = 'Open http://localhost:3000 on this machine.'; } catch (e) { document.getElementById('lan-url').textContent = 'Failed to detect LAN URL'; } })(); </script>
 </body>
+
 </html>
