@@ -29,10 +29,13 @@
       <!-- Navbar content: aligned to the right with ms-auto -->
       <div class="collapse navbar-collapse" id="navbarNavDropdown">
         <div class="ms-auto d-flex align-items-center gap-3 flex-wrap">
-          <button id="choose-bus" class="btn btn-primary" type="button" aria-pressed="false">I am a Bus</button>
-          <button id="choose-customer" class="btn btn-outline-secondary" type="button" aria-pressed="false">I am a
-            Customer</button>
-          <div class="link-box small" id="lan-url" role="status" aria-live="polite">Detecting LAN URL...</div>
+          <!-- Primary action: register as bus (kept in navbar) -->
+          <button id="choose-bus" class="btn btn-outline-light" type="button" aria-pressed="false">I am a Bus</button>
+
+          <!-- Secondary action: view as customer (default on page load) -->
+          <button id="choose-customer" class="btn btn-link text-white" type="button" aria-pressed="true">View as Customer</button>
+
+          <div class="link-box small bg-light text-dark px-2 py-1 rounded" id="lan-url" role="status" aria-live="polite">Detecting LAN URL...</div>
         </div>
       </div>
     </div>
@@ -51,6 +54,33 @@
 
   <div id="live-users" class="container-fluid"></div>
   <div id="map" class="container-fluid p-0" style="height: 70vh;"></div>
+
+  <!-- Bus Registration Modal -->
+  <div class="modal fade" id="busRegisterModal" tabindex="-1" aria-labelledby="busRegisterModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+      <form id="bus-register-form" class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="busRegisterModalLabel">Register as a Bus</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label for="bus-name" class="form-label">Bus Name (or ID)</label>
+            <input type="text" class="form-control" id="bus-name" placeholder="e.g., Route 42" required>
+          </div>
+          <div class="mb-3">
+            <label for="bus-route" class="form-label">Route (optional)</label>
+            <input type="text" class="form-control" id="bus-route" placeholder="e.g., Downtown Loop">
+          </div>
+          <div class="form-text">After registering, allow location sharing in your browser (if asked) so your bus shows live on the map.</div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button id="bus-register-submit" type="submit" class="btn btn-primary">Register as Bus</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <!-- Leaflet -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"
