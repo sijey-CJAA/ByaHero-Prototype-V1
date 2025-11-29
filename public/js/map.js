@@ -9,7 +9,7 @@ window.ByaHero = window.ByaHero || {};
   const markers = {}; // id -> { marker, lastSeen }
 
   // Configuration: target center and bounds (selected by you)
-  const CENTER = [14.063327, 121.028137]; // user-selected center
+  const CENTER = [14.091652, 121.021957]; // user-selected center
   // Create a simple bounding box +/- 0.08 degrees around center
   const DELTA = 0.08;
   const BOUNDS = L.latLngBounds(
@@ -19,8 +19,8 @@ window.ByaHero = window.ByaHero || {};
 
   // Zoom configuration
   const DEFAULT_ZOOM = 2;   // starting zoom (adjust to taste)
-  const MIN_ZOOM = 12;       // prevent zooming out too far (keeps view local)
-  const MAX_ZOOM = 18;       // maximum zoom in
+  const MIN_ZOOM = 11;       // prevent zooming out too far (keeps view local)
+  const MAX_ZOOM = 30;       // maximum zoom in
 
   // elementId: id of the DOM element to render the map into (e.g., 'map')
   // options: optional object to override config { center, bounds, minZoom, maxZoom, defaultZoom }
@@ -57,10 +57,7 @@ window.ByaHero = window.ByaHero || {};
       }
     });
 
-    // Optional: draw a subtle rectangle showing allowed area (helpful for debugging)
-    try {
-      L.rectangle(bounds, { color: '#0d6efd', weight: 1, fillOpacity: 0.02 }).addTo(map);
-    } catch (e) { /* ignore if drawing fails */ }
+    // NOTE: Removed the visual rectangle that showed the allowed area.
 
     return map;
   };

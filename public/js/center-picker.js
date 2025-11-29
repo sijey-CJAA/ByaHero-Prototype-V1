@@ -188,3 +188,103 @@
   };
 
 })();
+
+
+
+// code for index.html
+
+//script
+
+// <script>
+//     (async function () {
+//       try {
+//         const r = await fetch('/info');
+//         if (!r.ok) throw new Error('no info');
+//         const info = await r.json();
+//         const el = document.getElementById('lan-url');
+//         if (info && info.url) el.textContent = info.url;
+//         else el.textContent = 'Open http://localhost:3000 on this machine.';
+//       } catch (e) {
+//         document.getElementById('lan-url').textContent = `CAN'T DETECT LAN URL`;
+//       }
+//     })();
+
+//     // Picker wiring: wait for map, enable toggle button, handle selection.
+//     (function () {
+//       const btn = document.getElementById('pick-center-btn');
+//       let pickerActive = false;
+//       let initAttempt = 0;
+//       const MAX_ATTEMPTS = 60; // approx 30s if using 500ms interval
+
+//       function waitForMapAndInit() {
+//         const map = (window.ByaHero && typeof window.ByaHero.getMap === 'function') ? window.ByaHero.getMap() : null;
+//         if (map) {
+//           // enable button and attach handler
+//           btn.disabled = false;
+//           btn.classList.remove('opacity-50');
+//           btn.addEventListener('click', function () {
+//             if (!pickerActive) {
+//               // start picker
+//               try {
+//                 window.ByaHero.initCenterPicker(map, { bounds: map.getMaxBounds ? map.getMaxBounds() : null, initial: null });
+//                 pickerActive = true;
+//                 btn.textContent = 'Stop Picking';
+//                 btn.classList.remove('btn-warning');
+//                 btn.classList.add('btn-danger');
+//               } catch (err) {
+//                 console.error('Failed to start center picker', err);
+//                 alert('Failed to start picker. See console.');
+//               }
+//             } else {
+//               // stop picker
+//               if (window.ByaHero && typeof window.ByaHero.destroyCenterPicker === 'function') {
+//                 window.ByaHero.destroyCenterPicker();
+//               }
+//               pickerActive = false;
+//               btn.textContent = 'Pick Center';
+//               btn.classList.remove('btn-danger');
+//               btn.classList.add('btn-warning');
+//             }
+//           });
+
+//           // Listen for confirmed selection
+//           document.addEventListener('center:selected', function (e) {
+//             const d = e.detail || {};
+//             const lat = d.lat && Number(d.lat);
+//             const lng = d.lng && Number(d.lng);
+//             if (typeof lat === 'number' && typeof lng === 'number') {
+//               console.log('Center selected:', lat, lng);
+//               // Show coords in the LAN URL box for easy copy/paste
+//               const el = document.getElementById('lan-url');
+//               el.textContent = `Selected center: ${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+//               // After selection, auto-stop picker
+//               if (window.ByaHero && typeof window.ByaHero.destroyCenterPicker === 'function') {
+//                 window.ByaHero.destroyCenterPicker();
+//               }
+//               pickerActive = false;
+//               btn.textContent = 'Pick Center';
+//               btn.classList.remove('btn-danger');
+//               btn.classList.add('btn-warning');
+//             }
+//           });
+
+//           return;
+//         }
+
+//         initAttempt++;
+//         if (initAttempt > MAX_ATTEMPTS) {
+//           // give up enabling picker for now
+//           console.warn('pick-center: map not available after waiting, picker will remain disabled.');
+//           btn.disabled = true;
+//           btn.title = 'Map not ready - try reloading the page';
+//           return;
+//         }
+//         setTimeout(waitForMapAndInit, 500);
+//       }
+
+//       // initially disabled until map ready
+//       btn.disabled = true;
+//       btn.classList.add('opacity-50');
+//       waitForMapAndInit();
+//     })();
+//   </script>
