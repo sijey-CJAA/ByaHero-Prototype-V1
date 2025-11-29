@@ -1,9 +1,38 @@
 // public/js/main.js - wiring for role selection / default customer flow
+// Updated: show bus-mode controls after registration or when role === 'bus'
 window.ByaHero = window.ByaHero || {};
 
 (function(){
   const busBtn = document.getElementById('choose-bus');
   const cusBtn = document.getElementById('choose-customer');
+
+  // Helper to set navbar styling based on role
+  function setNavbarRole(role) {
+    if (role === 'bus') {
+      if (busBtn) {
+        busBtn.classList.remove('btn-outline-light');
+        busBtn.classList.add('btn-dark');
+        busBtn.textContent = 'You are a Bus';
+        busBtn.disabled = true;
+      }
+      if (cusBtn) {
+        cusBtn.classList.remove('text-success');
+        cusBtn.classList.add('text-white');
+      }
+    } else {
+      // default to customer look
+      if (cusBtn) {
+        cusBtn.classList.remove('text-white');
+        cusBtn.classList.add('text-success');
+      }
+      if (busBtn) {
+        busBtn.classList.remove('btn-dark');
+        busBtn.classList.add('btn-outline-light');
+        busBtn.textContent = 'I am a Bus';
+        busBtn.disabled = false;
+      }
+    }
+  }
 
   // ensure map module exists early
   if (window.ByaHero && window.ByaHero.createMap) {
@@ -54,25 +83,51 @@ window.ByaHero = window.ByaHero || {};
     const name = nameEl ? nameEl.value.trim() : '';
     const route = routeEl ? routeEl.value.trim() : '';
 
-    // prefer to call an explicit register function if bus.js provides one
     try {
-      if (typeof window.ByaHero.initBus === 'function') {
-        // initialize bus UI/logic
-        window.ByaHero.initBus();
-      }
-
-      // try several common register function names (non-destructive)
-      if (typeof window.ByaHero.registerBus === 'function') {
+      // Prefer the new registerAndStart API if available (registers and starts geolocation immediately)
+      if (typeof window.ByaHero.registerAndStart === 'function') {
+        window.ByaHero.registerAndStart({ name, route });
+        // mark navbar and behavior as bus
+        sessionStorage.setItem('byahero_role', 'bus');
+        setNavbarRole('bus');
+        // render bus-mode controls (compact)
+        if (typeof window.ByaHero.showBusModeControls === 'function') {
+          // small timeout to let register/start settle
+          setTimeout(() => window.ByaHero.showBusModeControls(), 200);
+        }
+      } else if (typeof window.ByaHero.registerBus === 'function') {
         window.ByaHero.registerBus({ name, route });
+        sessionStorage.setItem('byahero_role', 'bus');
+        setNavbarRole('bus');
       } else if (typeof window.ByaHero.register === 'function') {
         window.ByaHero.register({ name, route, role: 'bus' });
+        sessionStorage.setItem('byahero_role', 'bus');
+        setNavbarRole('bus');
       } else if (typeof window.ByaHero.startBus === 'function') {
         window.ByaHero.startBus(name, route);
+        sessionStorage.setItem('byahero_role', 'bus');
+        setNavbarRole('bus');
       } else {
-        // If no explicit register function exists, simply log and close modal.
-        console.warn('No explicit register function found on ByaHero. initBus() was called if available.');
-        // Optionally, if bus.js expects geolocation to start sending positions, inform user
-        alert('Bus module initialized. If automatic location sharing is implemented it will start now.');
+        // Fallback: initialize the in-page bus UI (older behavior)
+        if (typeof window.ByaHero.initBus === 'function') {
+          window.ByaHero.initBus();
+          // If initBus renders inputs, populate them (best-effort)
+          const n = document.getElementById('bus-name');
+          const r = document.getElementById('bus-route');
+          if (n) n.value = name;
+          if (r && route) {
+            try { r.value = route; } catch (err) { /* ignore */ }
+          }
+          // mark navbar as bus and show bus-mode controls (if provided)
+          sessionStorage.setItem('byahero_role', 'bus');
+          setNavbarRole('bus');
+          if (typeof window.ByaHero.showBusModeControls === 'function') {
+            setTimeout(() => window.ByaHero.showBusModeControls(), 200);
+          }
+        } else {
+          console.warn('No explicit register function found on ByaHero. initBus() was called if available.');
+          alert('Bus module initialized. If automatic location sharing is implemented it will start now.');
+        }
       }
     } catch (err) {
       console.error('Error during bus registration:', err);
@@ -98,6 +153,12 @@ window.ByaHero = window.ByaHero || {};
   if (cusBtn) {
     cusBtn.addEventListener('click', (ev) => {
       ev.preventDefault();
+      // If already registered as a bus, prevent switching to customer without explicit logout
+      const role = sessionStorage.getItem('byahero_role');
+      if (role === 'bus') {
+        alert('You are currently registered as a bus. To view as customer, please log out from bus mode first (clear role).');
+        return;
+      }
       activateCustomerView();
     });
   }
@@ -105,7 +166,25 @@ window.ByaHero = window.ByaHero || {};
   const form = document.getElementById('bus-register-form');
   if (form) form.addEventListener('submit', handleBusRegisterSubmit);
 
-  // Activate customer view automatically on page load
-  activateCustomerView();
+  // Respect persisted role (if any)
+  const persistedRole = sessionStorage.getItem('byahero_role');
+  setNavbarRole(persistedRole);
+
+  // Activate customer view automatically on page load unless role === 'bus'
+  if (persistedRole !== 'bus') {
+    activateCustomerView();
+  } else {
+    // If role is bus, restore badge info and show in-place bus controls (without re-registering)
+    const savedName = sessionStorage.getItem('byahero_name');
+    const savedRoute = sessionStorage.getItem('byahero_route');
+    if (savedName || savedRoute) {
+      exports.upsertBadge && exports.upsertBadge('me', `You: ${savedName || 'Bus'}${savedRoute ? ' ('+savedRoute+')' : ''}`);
+    }
+    // show compact bus-mode controls (follow toggle and seat status)
+    if (typeof window.ByaHero.showBusModeControls === 'function') {
+      setTimeout(() => window.ByaHero.showBusModeControls(), 150);
+    }
+    // NOTE: If you want to auto-re-register (start geolocation) on reload, we can call registerAndStart with savedName/savedRoute here.
+  }
 
 })();

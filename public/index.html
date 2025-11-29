@@ -71,10 +71,17 @@
             <label for="bus-name" class="form-label">Bus Name (or ID)</label>
             <input type="text" class="form-control" id="bus-name" placeholder="e.g., Route 42" required>
           </div>
+
+          <!-- Replaced free-text route input with a required select dropdown -->
           <div class="mb-3">
-            <label for="bus-route" class="form-label">Route (optional)</label>
-            <input type="text" class="form-control" id="bus-route" placeholder="e.g., Downtown Loop">
+            <label for="bus-route" class="form-label">Route (required)</label>
+            <select id="bus-route" class="form-select" required>
+              <option value="" disabled selected>Select route...</option>
+              <option value="LAUREL - TANAUAN">LAUREL - TANAUAN</option>
+              <option value="TANAUAN - LAUREL">TANAUAN - LAUREL</option>
+            </select>
           </div>
+
           <div class="form-text">After registering, allow location sharing in your browser (if asked) so your bus shows live on the map.</div>
         </div>
         <div class="modal-footer">
