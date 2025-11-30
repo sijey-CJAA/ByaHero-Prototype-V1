@@ -1,34 +1,26 @@
 // public/js/map.js - map creation and marker management
-// Updated to center and lock the map to the selected center:
-// CENTER = [14.091652, 121.021957]
-// BOUNDS = +/- 0.08 degrees around that center (approx ~9km box, adjust if needed)
+// Updated to allow free navigation (no fixed center/bounds)
 window.ByaHero = window.ByaHero || {};
 
 (function(exports){
   let map = null;
   const markers = {}; // id -> { marker, lastSeen }
 
-  // Configuration: target center and bounds (selected by you)
-  const CENTER = [14.091652, 121.021957]; // user-selected center
-  // Create a simple bounding box +/- 0.08 degrees around center
-  const DELTA = 0.08;
-  const BOUNDS = L.latLngBounds(
-    L.latLng(CENTER[0] - DELTA, CENTER[1] - DELTA), // southWest
-    L.latLng(CENTER[0] + DELTA, CENTER[1] + DELTA)  // northEast
-  );
+  // Configuration: default center (kept as previous user-selected default)
+  // You can override by passing options.center to createMap.
+  const DEFAULT_CENTER = [14.091652, 121.021957];
 
   // Zoom configuration
-  const DEFAULT_ZOOM = 2;   // starting zoom (adjust to taste)
-  const MIN_ZOOM = 11;       // prevent zooming out too far (keeps view local)
+  const DEFAULT_ZOOM = 13;   // starting zoom (adjust to taste)
+  const MIN_ZOOM = 2;        // allow zooming out freely
   const MAX_ZOOM = 30;       // maximum zoom in
 
   // elementId: id of the DOM element to render the map into (e.g., 'map')
-  // options: optional object to override config { center, bounds, minZoom, maxZoom, defaultZoom }
+  // options: optional object to override config { center, minZoom, maxZoom, defaultZoom }
   exports.createMap = function(elementId, options = {}){
     if (map) return map;
 
-    const center = options.center || CENTER;
-    const bounds = options.bounds || BOUNDS;
+    const center = options.center || DEFAULT_CENTER;
     const minZoom = options.minZoom || MIN_ZOOM;
     const maxZoom = options.maxZoom || MAX_ZOOM;
     const zoom = options.defaultZoom || DEFAULT_ZOOM;
@@ -38,8 +30,6 @@ window.ByaHero = window.ByaHero || {};
       zoom,
       minZoom,
       maxZoom,
-      maxBounds: bounds,
-      maxBoundsViscosity: 1.0, // makes it hard to pan outside bounds
       zoomControl: true,
       attributionControl: true
     });
@@ -49,15 +39,7 @@ window.ByaHero = window.ByaHero || {};
       maxZoom: 19
     }).addTo(map);
 
-    // Keep the map inside bounds if programmatic moves attempt to escape
-    map.on('moveend', function () {
-      if (!map.getMaxBounds()) return;
-      if (!map.getMaxBounds().contains(map.getCenter())) {
-        map.panInsideBounds(map.getMaxBounds(), { animate: true });
-      }
-    });
-
-    // NOTE: Removed the visual rectangle that showed the allowed area.
+    // No bounding box enforcement — allow free panning and zooming.
 
     return map;
   };
@@ -65,12 +47,7 @@ window.ByaHero = window.ByaHero || {};
   exports.addOrUpdateMarker = function(id, name, lat, lng){
     if (!map) return;
 
-    // If incoming coordinates are outside bounds, ignore them.
-    const latlng = L.latLng(lat, lng);
-    if (map.getMaxBounds && !map.getMaxBounds().contains(latlng)) {
-      // Marker outside allowed area — ignore to keep the map focused.
-      return;
-    }
+    // Accept markers anywhere (no bounds restriction)
 
     if (markers[id]) {
       markers[id].marker.setLatLng([lat,lng]);
@@ -101,9 +78,6 @@ window.ByaHero = window.ByaHero || {};
 
   exports.centerOn = function(lat, lng, zoom=DEFAULT_ZOOM){
     if (!map) return;
-    const latlng = L.latLng(lat, lng);
-    // Only center if inside bounds
-    if (map.getMaxBounds() && !map.getMaxBounds().contains(latlng)) return;
     map.setView([lat,lng], zoom);
   };
 
