@@ -1,0 +1,112 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>ByaHero Debug Client</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body { font-family: Arial, sans-serif; margin: 1rem; }
+    pre { background:#f5f5f5; padding: 1rem; max-height: 300px; overflow:auto; white-space:pre-wrap; }
+    button { margin: 0.25rem; }
+  </style>
+</head>
+<body>
+  <h2>ByaHero Debug Client</h2>
+  <div>
+    <button id="connect">Connect (relative)</button>
+    <button id="connect-explicit">Connect (explicit)</button>
+    <button id="register-bus">Register as BUS</button>
+    <button id="register-customer">Register as CUSTOMER</button>
+    <button id="send-loc">Send Sample Location</button>
+    <button id="req-buses">Request /buses (HTTP)</button>
+    <button id="dump-users">GET /debug/users</button>
+  </div>
+  <h3>Logs</h3>
+  <pre id="log"></pre>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const logEl = document.getElementById('log');
+    function log(...args) {
+      console.log(...args);
+      logEl.textContent += args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)).join(' ') + '\n';
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    let socket = null;
+
+    document.getElementById('connect').onclick = () => {
+      if (socket) { log('Already connected'); return; }
+      log('Connecting to same origin (io())');
+      socket = io();
+      setupSocket();
+    };
+
+    document.getElementById('connect-explicit').onclick = () => {
+      if (socket) { log('Already connected'); return; }
+      const url = prompt('Server URL (e.g. http://192.168.1.42:3000):', window.location.origin);
+      if (!url) return;
+      log('Connecting to', url);
+      socket = io(url, { transports: ['websocket','polling'] });
+      setupSocket();
+    };
+
+    function setupSocket() {
+      if (!socket) return;
+      socket.on('connect', () => log('socket connect - id:', socket.id));
+      socket.on('connect_error', (err) => log('connect_error', err && err.message ? err.message : err));
+      socket.on('connect_timeout', () => log('connect_timeout'));
+      socket.on('reconnect', (n) => log('reconnect', n));
+      socket.on('disconnect', (reason) => log('disconnect', reason));
+      socket.on('assign-name', (n) => log('assign-name', n));
+      socket.on('register-role-ok', (d) => log('register-role-ok', d));
+      socket.on('register-role-failed', (m) => log('register-role-failed', m));
+      socket.on('receive-location', (d) => log('receive-location', d));
+      socket.on('buses-updated', (d) => log('buses-updated', d));
+      socket.on('buses-list', (d) => log('buses-list', d));
+      socket.on('registered-names', (d) => log('registered-names', d));
+      socket.on('user-disconnected', (id) => log('user-disconnected', id));
+    }
+
+    document.getElementById('register-bus').onclick = () => {
+      if (!socket) { log('Not connected'); return; }
+      socket.emit('register-role', { role: 'bus', name: 'DebugBus' + Math.floor(Math.random()*1000) });
+      log('Sent register-role bus');
+    };
+
+    document.getElementById('register-customer').onclick = () => {
+      if (!socket) { log('Not connected'); return; }
+      socket.emit('register-role', { role: 'customer' });
+      log('Sent register-role customer');
+    };
+
+    document.getElementById('send-loc').onclick = () => {
+      if (!socket) { log('Not connected'); return; }
+      const lat = 14.0922 + Math.random()*0.001;
+      const lng = 121.1827 + Math.random()*0.001;
+      socket.emit('send-location', { lat, lng, accuracy: 20 });
+      log('Sent sample send-location', { lat, lng });
+    };
+
+    document.getElementById('req-buses').onclick = async () => {
+      try {
+        const resp = await fetch('/buses');
+        const json = await resp.json();
+        log('/buses HTTP result:', json);
+      } catch (e) {
+        log('HTTP /buses error', e);
+      }
+    };
+
+    document.getElementById('dump-users').onclick = async () => {
+      try {
+        const resp = await fetch('/debug/users');
+        const json = await resp.json();
+        log('/debug/users:', json);
+      } catch (e) {
+        log('HTTP /debug/users error', e);
+      }
+    };
+  </script>
+</body>
+</html>

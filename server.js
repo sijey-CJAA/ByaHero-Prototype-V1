@@ -1,3 +1,4 @@
+'use strict';
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
@@ -7,7 +8,14 @@ const os = require("os");
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+
+// Socket.IO with permissive CORS for LAN/dev; tighten in production
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
 
 // Serve public folder
 app.use(express.static(path.join(__dirname, "public")));
@@ -54,56 +62,96 @@ function validLatLng(lat, lng) {
 // Per-socket minimal send interval (ms)
 const MIN_SEND_INTERVAL_MS = 800;
 
-// Utility to find a LAN IPv4 address
-function getLocalIPv4() {
+// Network utilities
+function isIPv4(net) {
+  return net && (net.family === "IPv4" || net.family === 4);
+}
+function isPrivateIPv4(ip) {
+  if (!ip || typeof ip !== "string") return false;
+  return (
+    ip.startsWith("10.") ||
+    ip.startsWith("192.168.") ||
+    (/^172\.(1[6-9]|2[0-9]|3[0-1])\./).test(ip)
+  );
+}
+
+function getAllLocalIPv4s() {
   const nets = os.networkInterfaces();
+  const results = [];
   for (const name of Object.keys(nets)) {
     for (const net of nets[name]) {
-      if (net.family === "IPv4" && !net.internal) {
-        return net.address;
+      if (isIPv4(net) && !net.internal) {
+        results.push({ interface: name, address: net.address });
       }
     }
   }
-  return null;
+  return results;
+}
+function getLocalIPv4() {
+  const all = getAllLocalIPv4s();
+  if (!all || all.length === 0) return null;
+  const privateOne = all.find(x => isPrivateIPv4(x.address));
+  if (privateOne) return privateOne.address;
+  return all[0].address;
 }
 
-// Provide info endpoint so clients can get the machine's LAN URL
-app.get("/info", (req, res) => {
-  const PORT = process.env.PORT || 3000;
-  const ip = getLocalIPv4();
-  const url = ip ? `http://${ip}:${PORT}/` : null;
-  res.json({ ip, port: PORT, url });
-});
-
-// Endpoint: list buses (current known buses with location)
-app.get("/buses", (req, res) => {
+function getBusesList() {
   const buses = [];
   for (const [id, u] of Object.entries(users)) {
     if (u.role === "bus" && u.lastLocation && typeof u.lastLocation.lat === "number") {
       buses.push({
         id,
         name: u.name,
-        lastLocation: u.lastLocation,
+        ...u.lastLocation
       });
     }
   }
-  res.json({ buses });
+  return buses;
+}
+
+// Debug/info endpoint
+app.get("/info", (req, res) => {
+  const PORT = process.env.PORT || 3000;
+  const ips = getAllLocalIPv4s().map(x => x.address);
+  const primaryIp = getLocalIPv4();
+  const hostHeader = req.get("host") || null;
+  const urls = [];
+  if (primaryIp) urls.push(`http://${primaryIp}:${PORT}/`);
+  for (const ip of ips) {
+    const candidate = `http://${ip}:${PORT}/`;
+    if (!urls.includes(candidate)) urls.push(candidate);
+  }
+  if (hostHeader && !urls.includes(`http://${hostHeader}/`)) {
+    urls.push(`http://${hostHeader}/`);
+  }
+  res.json({
+    port: PORT,
+    ips,
+    primaryIp,
+    urls,
+    networkInterfaces: os.networkInterfaces()
+  });
+});
+
+app.get("/buses", (req, res) => {
+  res.json({ buses: getBusesList() });
+});
+
+// Optional debug users dump (remove in production)
+app.get('/debug/users', (req, res) => {
+  res.json({ users });
 });
 
 io.on("connection", (socket) => {
   console.log("A new connection:", socket.id);
 
-  // Assign a new default name & role unknown
   userCount++;
   const defaultName = `Bus ${userCount}`;
   users[socket.id] = { name: defaultName, role: null, lastLocation: null, lastSentAt: 0 };
 
-  // Inform client of assigned default name
   socket.emit("assign-name", defaultName);
 
-  // Client registers its role (bus | customer) and optional name
   socket.on("register-role", (payload) => {
-    // payload: { role: 'bus'|'customer', name?: string }
     const role = payload?.role;
     if (role !== "bus" && role !== "customer") {
       socket.emit("register-role-failed", "Invalid role");
@@ -112,49 +160,40 @@ io.on("connection", (socket) => {
     users[socket.id].role = role;
 
     if (role === "bus") {
-      // name may be provided
       const sanitized = sanitizeName(payload?.name) || users[socket.id].name;
       users[socket.id].name = sanitized;
       registeredNames.push(sanitized);
       saveNames(registeredNames);
       console.log(`Bus registered: ${sanitized} (${socket.id})`);
-
-      // Send current buses to this bus (not necessary but helpful)
-      for (const [id, user] of Object.entries(users)) {
-        if (id !== socket.id && user.role === "bus" && user.lastLocation) {
-          socket.emit("receive-location", { id, name: user.name, ...user.lastLocation });
-        }
-      }
     } else {
-      // customer
       console.log(`Customer connected (${socket.id})`);
-      // Send all known buses to the new customer
-      for (const [id, user] of Object.entries(users)) {
-        if (user.role === "bus" && user.lastLocation) {
-          socket.emit("receive-location", { id, name: user.name, ...user.lastLocation });
-        }
-      }
     }
+
     socket.emit("register-role-ok", { role: users[socket.id].role, name: users[socket.id].name });
+
+    // Broadcast authoritative list to all clients so they can reconcile
+    const buses = getBusesList();
+    io.emit("buses-updated", { buses });
   });
 
-  // Allow clients to ask for list of registered names (optional)
   socket.on("list-registered-names", () => {
     socket.emit("registered-names", Array.from(new Set(registeredNames)).slice(0, 200));
   });
 
-  // Receive location from a user (only buses should send)
   socket.on("send-location", (data) => {
     if (!users[socket.id]) return;
-    if (users[socket.id].role !== "bus") return; // only accept bus location updates
+    if (users[socket.id].role !== "bus") {
+      console.warn(`Ignoring send-location from non-bus socket ${socket.id}. Role: ${users[socket.id].role}`);
+      return;
+    }
 
-    // Rate limiting
     const now = Date.now();
     if (now - users[socket.id].lastSentAt < MIN_SEND_INTERVAL_MS) {
       return;
     }
     users[socket.id].lastSentAt = now;
 
+    // Ensure numeric parsing - clients might send strings
     const lat = parseFloat(data?.lat);
     const lng = parseFloat(data?.lng);
     if (!validLatLng(lat, lng)) return;
@@ -169,35 +208,30 @@ io.on("connection", (socket) => {
 
     users[socket.id].lastLocation = payload;
 
-    // Broadcast to all OTHER clients (customers and other buses)
+    // quick delta broadcast
     socket.broadcast.emit("receive-location", {
       id: socket.id,
       name: users[socket.id].name,
       ...payload,
     });
+
+    // authoritative full list broadcast
+    const buses = getBusesList();
+    io.emit("buses-updated", { buses });
   });
 
-  // Handle disconnection
   socket.on("disconnect", () => {
     if (users[socket.id]) {
       console.log(`${users[socket.id].name} disconnected (${socket.id})`);
-      io.emit("user-disconnected", socket.id);
       delete users[socket.id];
+      io.emit("user-disconnected", socket.id);
+      const buses = getBusesList();
+      io.emit("buses-updated", { buses });
     }
   });
 
-  // Customers can request current buses via socket
   socket.on("request-buses", () => {
-    const buses = [];
-    for (const [id, u] of Object.entries(users)) {
-      if (u.role === "bus" && u.lastLocation) {
-        buses.push({
-          id,
-          name: u.name,
-          ...u.lastLocation,
-        });
-      }
-    }
+    const buses = getBusesList();
     socket.emit("buses-list", { buses });
   });
 });
@@ -205,6 +239,17 @@ io.on("connection", (socket) => {
 // Listen on all interfaces so LAN devices can reach it
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, "0.0.0.0", () => {
-  const ip = getLocalIPv4() || "localhost";
-  console.log(`✅ Server running at http://localhost:${PORT} and on your LAN at http://${ip}:${PORT}`);
+  const allIps = getAllLocalIPv4s().map(x => x.address);
+  const primary = getLocalIPv4();
+  console.log(`✅ Server listening on http://localhost:${PORT}/`);
+  if (primary) {
+    console.log(`✅ LAN (preferred) at http://${primary}:${PORT}/`);
+  }
+  if (allIps.length > 0) {
+    console.log("Other detected non-internal IPv4 addresses:", allIps);
+  } else {
+    console.log("No non-internal IPv4 addresses detected. If you're running inside WSL/Docker or disconnected from a network, the machine may not have a LAN address.");
+    console.log("Network interfaces:", JSON.stringify(os.networkInterfaces(), null, 2));
+  }
+  console.log("If other devices cannot connect: ensure firewall allows incoming TCP on the port, and use one of the printed LAN IPs from a device on the same network.");
 });

@@ -27,24 +27,70 @@ window.ByaHero = window.ByaHero || {};
     // ensure map exists
     exports.createMap && exports.createMap('map');
 
-    // register as customer
-    if (socket && socket.connected) {
+    // Register as customer once connected (or immediately; socket.io buffers emits)
+    // use a flag to avoid duplicate registration attempts
+    let registeredAsCustomer = false;
+    function registerCustomer() {
+      if (!socket) return;
+      if (registeredAsCustomer) return;
       socket.emit('register-role', { role: 'customer' });
+      // do not flip flag here; wait for server ack to confirm registration
+    }
+
+    // If socket exists, attempt to register now (socket.io will buffer emit if not connected)
+    registerCustomer();
+
+    // Also register on connect event to ensure registration when connection is established
+    if (socket) {
+      socket.on('connect', () => {
+        registerCustomer();
+      });
     }
 
     socket.on('register-role-ok', (info) => {
-      exports.upsertBadge && exports.upsertBadge('me', `You: Customer`);
+      if (info && info.role === 'customer') {
+        registeredAsCustomer = true;
+        exports.upsertBadge && exports.upsertBadge('me', `You: Customer`);
+      }
+    });
+
+    socket.on('register-role-failed', (msg) => {
+      console.warn('register-role-failed', msg);
     });
 
     // Listen for buses updates over socket
     socket.on('receive-location', (data) => {
       if (!data) return;
-      if (typeof data.lat !== 'number' || typeof data.lng !== 'number') return;
-      exports.addOrUpdateMarker && exports.addOrUpdateMarker(data.id, data.name, data.lat, data.lng);
+      // accept numeric or numeric-like coordinates
+      const lat = typeof data.lat === 'number' ? data.lat : parseFloat(data.lat);
+      const lng = typeof data.lng === 'number' ? data.lng : parseFloat(data.lng);
+      if (!isFinite(lat) || !isFinite(lng)) return;
+      exports.addOrUpdateMarker && exports.addOrUpdateMarker(data.id, data.name, lat, lng);
+    });
+
+    socket.on('buses-updated', (payload) => {
+      // payload: { buses: [...] } where each bus might have { id, name, lastLocation:{lat,lng} } OR { id, name, lat, lng }
+      if (!payload || !Array.isArray(payload.buses)) return;
+      const buses = payload.buses;
+      buses.forEach(b => {
+        let lat = null, lng = null;
+        if (b.lastLocation) {
+          lat = typeof b.lastLocation.lat === 'number' ? b.lastLocation.lat : parseFloat(b.lastLocation.lat);
+          lng = typeof b.lastLocation.lng === 'number' ? b.lastLocation.lng : parseFloat(b.lastLocation.lng);
+        } else if (typeof b.lat === 'number' && typeof b.lng === 'number') {
+          lat = b.lat; lng = b.lng;
+        } else if (b.lat != null && b.lng != null) {
+          lat = parseFloat(b.lat); lng = parseFloat(b.lng);
+        }
+        if (isFinite(lat) && isFinite(lng)) {
+          exports.addOrUpdateMarker && exports.addOrUpdateMarker(b.id, b.name, lat, lng);
+        }
+      });
     });
 
     socket.on('user-disconnected', (id) => {
       exports.removeMarker && exports.removeMarker(id);
+      exports.removeBadge && exports.removeBadge(id);
     });
 
     // Refresh by requesting /buses endpoint
@@ -55,8 +101,18 @@ window.ByaHero = window.ByaHero || {};
         const j = await r.json();
         if (Array.isArray(j.buses)) {
           j.buses.forEach(b => {
+            // support both shapes: b.lastLocation or top-level b.lat/b.lng
+            let lat = null, lng = null;
             if (b.lastLocation) {
-              exports.addOrUpdateMarker && exports.addOrUpdateMarker(b.id, b.name, b.lastLocation.lat, b.lastLocation.lng);
+              lat = typeof b.lastLocation.lat === 'number' ? b.lastLocation.lat : parseFloat(b.lastLocation.lat);
+              lng = typeof b.lastLocation.lng === 'number' ? b.lastLocation.lng : parseFloat(b.lastLocation.lng);
+            } else if (typeof b.lat === 'number' && typeof b.lng === 'number') {
+              lat = b.lat; lng = b.lng;
+            } else if (b.lat != null && b.lng != null) {
+              lat = parseFloat(b.lat); lng = parseFloat(b.lng);
+            }
+            if (isFinite(lat) && isFinite(lng)) {
+              exports.addOrUpdateMarker && exports.addOrUpdateMarker(b.id, b.name, lat, lng);
             }
           });
         }
