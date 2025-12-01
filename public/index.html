@@ -111,6 +111,125 @@
   <script src="js/customer.js"></script>
   <script src="js/main.js"></script>
 
+  <!-- Patch: make displayed label merged "BUS 001 - Laurel - Tanauan" while keeping marker popup as "BUS 001" -->
+  <script>
+    (function () {
+      // Helpers
+      function titleCaseWord(word) {
+        if (!word) return word;
+        return word.split(' ').map(function (w) {
+          if (!w) return w;
+          return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+        }).join(' ');
+      }
+      function titleCaseRoute(route) {
+        // route like "LAUREL - TANAUAN" -> "Laurel - Tanauan"
+        return route.split('-').map(function (p) { return titleCaseWord(p.trim()); }).join(' - ');
+      }
+
+      function cleanupPopupLatLngs(map) {
+        if (!map) return;
+        try {
+          const layers = map._layers || {};
+          for (const k in layers) {
+            const layer = layers[k];
+            if (!layer) continue;
+            try {
+              const popup = (typeof layer.getPopup === 'function') ? layer.getPopup && layer.getPopup() : null;
+              if (popup && popup.getContent) {
+                const content = popup.getContent();
+                if (content && content.includes('<br/>')) {
+                  // remove lat/lng line (anything after the first <br/>)
+                  const firstLine = content.split('<br/>')[0];
+                  popup.setContent(firstLine);
+                }
+              }
+            } catch (e) {
+              // ignore per-layer issues
+            }
+          }
+        } catch (e) { /* ignore */ }
+      }
+
+      function replaceInlineYouText(busName, mergedName) {
+        // Replace occurrences like "BUS 001 (LAUREL - TANAUAN)" with "BUS 001 - Laurel - Tanauan"
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
+        const re = new RegExp(busName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&') + '\\s*\\(([^)]+)\\)');
+        const nodes = [];
+        let node;
+        while (node = walker.nextNode()) {
+          if (node.nodeValue && re.test(node.nodeValue)) {
+            nodes.push(node);
+          }
+        }
+        nodes.forEach(function (textNode) {
+          textNode.nodeValue = textNode.nodeValue.replace(re, mergedName);
+        });
+      }
+
+      function patchAddOrUpdate() {
+        var attempts = 0;
+        var maxAttempts = 50;
+        var interval = setInterval(function () {
+          attempts++;
+          if (window.ByaHero && typeof window.ByaHero.addOrUpdateMarker === 'function') {
+            clearInterval(interval);
+            const orig = window.ByaHero.addOrUpdateMarker;
+            window.ByaHero.addOrUpdateMarker = function (id, name, lat, lng) {
+              // Try to extract bus name and route from name that may be like:
+              // "BUS 001 (LAUREL - TANAUAN)"
+              var busName = name;
+              var merged = name;
+              var m = null;
+              try { m = name.match(/^([^(]+)\s*\(([^)]+)\)/); } catch (e) { /* ignore */ }
+              if (m) {
+                busName = m[1].trim();
+                var routeRaw = m[2].trim();
+                var routeTitle = titleCaseRoute(routeRaw);
+                merged = busName + ' - ' + routeTitle;
+              }
+
+              // Call original with busName so marker popup and icon will be based on the bus short name
+              var result = orig.call(this, id, busName, lat, lng);
+
+              // Ensure UI badges / lists show the merged version (bus + title-cased route)
+              try {
+                if (window.ByaHero && typeof window.ByaHero.upsertBadge === 'function') {
+                  // upsert merged label for display purposes
+                  window.ByaHero.upsertBadge(id, merged);
+                }
+              } catch (e) { /* ignore */ }
+
+              // Remove lat/lng line from any marker popups (so popup only shows the name)
+              try {
+                var map = (window.ByaHero && typeof window.ByaHero.getMap === 'function') ? window.ByaHero.getMap() : null;
+                cleanupPopupLatLngs(map);
+              } catch (e) { /* ignore */ }
+
+              // Replace inline occurrences in DOM like "BUS 001 (LAUREL - TANAUAN)" -> "BUS 001 - Laurel - Tanauan"
+              try {
+                if (m) replaceInlineYouText(busName, merged);
+              } catch (e) { /* ignore */ }
+
+              return result;
+            };
+            return;
+          }
+          if (attempts >= maxAttempts) {
+            clearInterval(interval);
+          }
+        }, 150);
+      }
+
+      // start patching after page load
+      if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        patchAddOrUpdate();
+      } else {
+        window.addEventListener('DOMContentLoaded', patchAddOrUpdate);
+      }
+    })();
+  </script>
+
   <!--  -->
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"
