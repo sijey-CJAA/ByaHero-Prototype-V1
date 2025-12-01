@@ -104,17 +104,10 @@
   <script src="js/common.js"></script>
   <script src="js/map.js"></script>
 
-  <!-- Center picker (must be present in public/js/center-picker.js) -->
-  <script src="js/center-picker.js"></script>
-
-  <script src="js/bus.js"></script>
-  <script src="js/customer.js"></script>
-  <script src="js/main.js"></script>
-
-  <!-- Patch: make displayed label merged "BUS 001 - Laurel - Tanauan" while keeping marker popup as "BUS 001" -->
+  <!-- Patch: preserve status suffix when transforming "(ROUTE)" into " - Route" so "Available"/"Full" isn't stripped.
+       IMPORTANT: This patch must run after map.js is loaded and BEFORE bus.js runs. -->
   <script>
     (function () {
-      // Helpers
       function titleCaseWord(word) {
         if (!word) return word;
         return word.split(' ').map(function (w) {
@@ -123,7 +116,6 @@
         }).join(' ');
       }
       function titleCaseRoute(route) {
-        // route like "LAUREL - TANAUAN" -> "Laurel - Tanauan"
         return route.split('-').map(function (p) { return titleCaseWord(p.trim()); }).join(' - ');
       }
 
@@ -139,20 +131,16 @@
               if (popup && popup.getContent) {
                 const content = popup.getContent();
                 if (content && content.includes('<br/>')) {
-                  // remove lat/lng line (anything after the first <br/>)
                   const firstLine = content.split('<br/>')[0];
                   popup.setContent(firstLine);
                 }
               }
-            } catch (e) {
-              // ignore per-layer issues
-            }
+            } catch (e) { /* ignore per-layer issues */ }
           }
         } catch (e) { /* ignore */ }
       }
 
       function replaceInlineYouText(busName, mergedName) {
-        // Replace occurrences like "BUS 001 (LAUREL - TANAUAN)" with "BUS 001 - Laurel - Tanauan"
         const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
         const re = new RegExp(busName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&') + '\\s*\\(([^)]+)\\)');
         const nodes = [];
@@ -176,12 +164,19 @@
             clearInterval(interval);
             const orig = window.ByaHero.addOrUpdateMarker;
             window.ByaHero.addOrUpdateMarker = function (id, name, lat, lng) {
-              // Try to extract bus name and route from name that may be like:
-              // "BUS 001 (LAUREL - TANAUAN)"
-              var busName = name;
-              var merged = name;
+              var originalName = String(name || '');
+              var statusSuffix = '';
+
+              // Detect "Available" or "Full" in common formats and preserve them
+              var mStatus = originalName.match(/(?:—|-)\s*(available|full)\b/i) || originalName.match(/\((\s*(available|full)\s*)\)$/i);
+              if (mStatus) {
+                statusSuffix = ' — ' + (mStatus[1] || mStatus[0]).toString().trim().replace(/\s+/g,' ');
+              }
+
+              var busName = originalName;
+              var merged = originalName;
               var m = null;
-              try { m = name.match(/^([^(]+)\s*\(([^)]+)\)/); } catch (e) { /* ignore */ }
+              try { m = originalName.match(/^([^(]+)\s*\(([^)]+)\)/); } catch (e) { /* ignore */ }
               if (m) {
                 busName = m[1].trim();
                 var routeRaw = m[2].trim();
@@ -189,24 +184,24 @@
                 merged = busName + ' - ' + routeTitle;
               }
 
-              // Call original with busName so marker popup and icon will be based on the bus short name
-              var result = orig.call(this, id, busName, lat, lng);
+              // Pass busName + preserved statusSuffix to map so color detection sees the status
+              var markerNameToPass = (busName || originalName) + (statusSuffix || '');
 
-              // Ensure UI badges / lists show the merged version (bus + title-cased route)
+              var result = orig.call(this, id, markerNameToPass, lat, lng);
+
+              // Update badge display but keep the status suffix
               try {
                 if (window.ByaHero && typeof window.ByaHero.upsertBadge === 'function') {
-                  // upsert merged label for display purposes
-                  window.ByaHero.upsertBadge(id, merged);
+                  var badgeLabel = merged + (statusSuffix || '');
+                  window.ByaHero.upsertBadge(id, badgeLabel);
                 }
               } catch (e) { /* ignore */ }
 
-              // Remove lat/lng line from any marker popups (so popup only shows the name)
               try {
                 var map = (window.ByaHero && typeof window.ByaHero.getMap === 'function') ? window.ByaHero.getMap() : null;
                 cleanupPopupLatLngs(map);
               } catch (e) { /* ignore */ }
 
-              // Replace inline occurrences in DOM like "BUS 001 (LAUREL - TANAUAN)" -> "BUS 001 - Laurel - Tanauan"
               try {
                 if (m) replaceInlineYouText(busName, merged);
               } catch (e) { /* ignore */ }
@@ -221,7 +216,6 @@
         }, 150);
       }
 
-      // start patching after page load
       if (document.readyState === 'complete' || document.readyState === 'interactive') {
         patchAddOrUpdate();
       } else {
@@ -229,6 +223,14 @@
       }
     })();
   </script>
+
+  <!-- Center picker (must be present in public/js/center-picker.js) -->
+  <script src="js/center-picker.js"></script>
+
+  <!-- Bus & other app scripts (bus.js should run after the patch so its addOrUpdateMarker calls include status) -->
+  <script src="js/bus.js"></script>
+  <script src="js/customer.js"></script>
+  <script src="js/main.js"></script>
 
   <!--  -->
 
