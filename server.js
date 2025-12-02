@@ -39,7 +39,7 @@ function saveNames(names) {
 }
 let registeredNames = loadNames();
 
-// Connected users: socket.id -> { name, role, lastLocation, lastSentAt }
+// Connected users: socket.id -> { name, role, lastLocation, lastSentAt, status }
 const users = {};
 let userCount = 0;
 
@@ -102,6 +102,7 @@ function getBusesList() {
       buses.push({
         id,
         name: u.name,
+        status: u.status || "available", // include bus status (available / full / unknown)
         ...u.lastLocation
       });
     }
@@ -147,7 +148,8 @@ io.on("connection", (socket) => {
 
   userCount++;
   const defaultName = `Bus ${userCount}`;
-  users[socket.id] = { name: defaultName, role: null, lastLocation: null, lastSentAt: 0 };
+  // Add status field for buses ('available' or 'full' or undefined)
+  users[socket.id] = { name: defaultName, role: null, lastLocation: null, lastSentAt: 0, status: "available" };
 
   socket.emit("assign-name", defaultName);
 
@@ -162,6 +164,12 @@ io.on("connection", (socket) => {
     if (role === "bus") {
       const sanitized = sanitizeName(payload?.name) || users[socket.id].name;
       users[socket.id].name = sanitized;
+      // allow optional initial status from payload
+      if (payload?.status === "full" || payload?.status === "available") {
+        users[socket.id].status = payload.status;
+      } else {
+        users[socket.id].status = users[socket.id].status || "available";
+      }
       registeredNames.push(sanitized);
       saveNames(registeredNames);
       console.log(`Bus registered: ${sanitized} (${socket.id})`);
@@ -169,7 +177,7 @@ io.on("connection", (socket) => {
       console.log(`Customer connected (${socket.id})`);
     }
 
-    socket.emit("register-role-ok", { role: users[socket.id].role, name: users[socket.id].name });
+    socket.emit("register-role-ok", { role: users[socket.id].role, name: users[socket.id].name, status: users[socket.id].status });
 
     // Broadcast authoritative list to all clients so they can reconcile
     const buses = getBusesList();
@@ -178,6 +186,25 @@ io.on("connection", (socket) => {
 
   socket.on("list-registered-names", () => {
     socket.emit("registered-names", Array.from(new Set(registeredNames)).slice(0, 200));
+  });
+
+  // allow buses to set their availability status (available | full)
+  socket.on("set-bus-status", (payload) => {
+    if (!users[socket.id]) return;
+    if (users[socket.id].role !== "bus") {
+      socket.emit("set-bus-status-failed", "Only a bus may set status");
+      return;
+    }
+    const status = payload?.status;
+    if (status !== "available" && status !== "full") {
+      socket.emit("set-bus-status-failed", "Invalid status");
+      return;
+    }
+    users[socket.id].status = status;
+    // broadcast updated buses list
+    const buses = getBusesList();
+    io.emit("buses-updated", { buses });
+    socket.emit("set-bus-status-ok", { status });
   });
 
   socket.on("send-location", (data) => {
@@ -208,10 +235,11 @@ io.on("connection", (socket) => {
 
     users[socket.id].lastLocation = payload;
 
-    // quick delta broadcast
+    // quick delta broadcast (includes current status)
     socket.broadcast.emit("receive-location", {
       id: socket.id,
       name: users[socket.id].name,
+      status: users[socket.id].status || "unknown",
       ...payload,
     });
 

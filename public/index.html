@@ -34,9 +34,6 @@
 
           <!-- Secondary action: view as customer (default on page load) -->
           <button id="choose-customer" class="btn btn-link text-white" type="button" aria-pressed="true">View as Customer</button>
-
-          <!-- New: Pick center toggle
-          <button id="pick-center-btn" class="btn btn-sm btn-warning text-dark" type="button" title="Pick a center on the map">Pick Center</button> -->
         </div>
       </div>
     </div>
@@ -69,7 +66,7 @@
         <div class="modal-body">
           <div class="mb-3">
             <label for="bus-name" class="form-label">Bus Name (or ID)</label>
-            <input type="text" class="form-control" id="bus-name" placeholder="e.g., Route 42" required>
+            <input type="text" class="form-control" id="bus-name" placeholder="BUS 001" required>
           </div>
 
           <!-- Replaced free-text route input with a required select dropdown -->
@@ -232,7 +229,260 @@
   <script src="js/customer.js"></script>
   <script src="js/main.js"></script>
 
-  <!--  -->
+  <!-- Status & socket integration (added) -->
+  <script>
+    (function () {
+      // Keep everything local to avoid conflicting with other scripts
+      const socket = (typeof io === 'function') ? io() : null;
+      let myRole = 'customer';
+      let myName = null;
+      let myStatus = 'available';
+      let myRoute = '';
+
+      // DOM refs
+      const infoSection = document.getElementById('info');
+      const modeTitle = document.getElementById('mode-title');
+      const controlsEl = document.getElementById('controls');
+      const chooseBusBtn = document.getElementById('choose-bus');
+      const chooseCustomerBtn = document.getElementById('choose-customer');
+      const registerModalEl = document.getElementById('busRegisterModal');
+      const registerForm = document.getElementById('bus-register-form');
+      const busNameInput = document.getElementById('bus-name');
+      const busRouteSelect = document.getElementById('bus-route');
+      const liveUsersEl = document.getElementById('live-users');
+
+      // Modal instance reference (lazy-created so bootstrap script can load)
+      let registerModalInstance = null;
+
+      // Helper: show controls for bus role
+      function renderControlsForRole(role) {
+        infoSection.style.display = 'block';
+        if (role === 'bus') {
+          modeTitle.innerHTML = '<strong>You: BUS (sharing GPS)</strong>';
+          controlsEl.innerHTML = `
+            <div class="btn-group">
+              <button id="btn-available" class="btn btn-success">Seats Available</button>
+              <button id="btn-full" class="btn btn-danger">Bus Full</button>
+            </div>
+            <div class="mt-2"><span id="status-indicator" class="badge bg-success">Available</span>
+            <span id="registered-name" class="badge bg-info text-dark ms-2">--</span></div>
+          `;
+          // hook the new buttons
+          const btnAvailable = document.getElementById('btn-available');
+          const btnFull = document.getElementById('btn-full');
+          const statusIndicator = document.getElementById('status-indicator');
+          btnAvailable.addEventListener('click', () => {
+            setMyStatus('available');
+            statusIndicator.textContent = 'Available';
+            statusIndicator.className = 'badge bg-success';
+          });
+          btnFull.addEventListener('click', () => {
+            setMyStatus('full');
+            statusIndicator.textContent = 'Full';
+            statusIndicator.className = 'badge bg-danger';
+          });
+          const registeredNameEl = document.getElementById('registered-name');
+          registeredNameEl.textContent = myName || '--';
+        } else {
+          modeTitle.innerHTML = '<strong>Mode: Customer (view only)</strong>';
+          controlsEl.innerHTML = '';
+        }
+      }
+
+      function setMyStatus(status) {
+        if (!socket) return;
+        if (myRole !== 'bus') return;
+        if (status !== 'available' && status !== 'full') return;
+        myStatus = status;
+        socket.emit('set-bus-status', { status });
+      }
+
+      // Render list of buses in #live-users
+      function renderLiveBuses(buses) {
+        if (!Array.isArray(buses)) buses = [];
+        liveUsersEl.innerHTML = '';
+        const container = document.createElement('div');
+        container.className = 'card';
+        const header = document.createElement('div');
+        header.className = 'card-header';
+        header.textContent = 'Nearby Buses';
+        container.appendChild(header);
+        const list = document.createElement('ul');
+        list.className = 'list-group list-group-flush';
+        list.style.maxHeight = '240px';
+        list.style.overflow = 'auto';
+
+        buses.forEach(bus => {
+          const li = document.createElement('li');
+          li.className = 'list-group-item d-flex justify-content-between align-items-center';
+          const statusLabel = document.createElement('span');
+          statusLabel.className = 'badge ' + (bus.status === 'full' ? 'bg-danger' : 'bg-success');
+          statusLabel.textContent = bus.status ? (bus.status === 'full' ? 'Full' : 'Available') : 'Unknown';
+          li.innerHTML = `<div><strong>${bus.name}</strong><br/><small>${bus.lat.toFixed(5)}, ${bus.lng.toFixed(5)}</small></div>`;
+          li.appendChild(statusLabel);
+          li.style.cursor = 'pointer';
+          li.addEventListener('click', () => {
+            // Navigate the map to the bus marker if your map API exposes it
+            try {
+              if (window.ByaHero && typeof window.ByaHero.focusMarker === 'function') {
+                window.ByaHero.focusMarker(bus.id);
+              } else if (window.ByaHero && typeof window.ByaHero.getMap === 'function') {
+                const map = window.ByaHero.getMap();
+                if (map && typeof map.setView === 'function') map.setView([bus.lat, bus.lng], 16);
+              }
+            } catch (e) { /* ignore */ }
+          });
+          list.appendChild(li);
+        });
+
+        container.appendChild(list);
+        liveUsersEl.appendChild(container);
+      }
+
+      // When the app receives the authoritative buses list, ensure markers and UI reflect status.
+      function handleBusesUpdated(payload) {
+        const buses = (payload && Array.isArray(payload.buses)) ? payload.buses : [];
+        // Use the marker API from your existing map code, falling back to calling addOrUpdateMarker if present.
+        buses.forEach(bus => {
+          try {
+            const suffix = (bus.status ? ' — ' + (bus.status === 'full' ? 'Full' : 'Available') : '');
+            const markerName = (bus.name || 'Bus') + suffix;
+            if (window.ByaHero && typeof window.ByaHero.addOrUpdateMarker === 'function') {
+              window.ByaHero.addOrUpdateMarker(bus.id, markerName, bus.lat, bus.lng);
+            }
+          } catch (e) { /* ignore */ }
+        });
+
+        // render list UI
+        renderLiveBuses(buses);
+      }
+
+      // Wire UI triggers
+      chooseBusBtn.addEventListener('click', () => {
+        // Lazy-create modal instance the first time we need it (bootstrap may not be loaded yet)
+        try {
+          if (!registerModalInstance && typeof bootstrap !== 'undefined') {
+            registerModalInstance = new bootstrap.Modal(registerModalEl);
+          }
+          if (registerModalInstance) registerModalInstance.show();
+          else {
+            // fallback: if bootstrap isn't available yet, try triggering attribute-based show by toggling class
+            registerModalEl.classList.add('show', 'd-block');
+            document.body.classList.add('modal-open');
+            const backdrop = document.createElement('div');
+            backdrop.className = 'modal-backdrop fade show';
+            document.body.appendChild(backdrop);
+          }
+        } catch (e) {
+          // last-resort: ensure modal markup is visible
+          registerModalEl.classList.add('show', 'd-block');
+        }
+      });
+      chooseCustomerBtn.addEventListener('click', () => {
+        myRole = 'customer';
+        renderControlsForRole('customer');
+        if (socket) socket.emit('register-role', { role: 'customer' });
+      });
+
+      // register form submit
+      registerForm.addEventListener('submit', (ev) => {
+        ev.preventDefault();
+        const name = (busNameInput.value || '').trim();
+        const route = (busRouteSelect.value || '').trim();
+        if (!name || !route) {
+          alert('Please provide a bus name and select a route.');
+          return;
+        }
+        myName = name;
+        myRoute = route;
+        myRole = 'bus';
+        myStatus = 'available';
+        // Tell server we are a bus and provide initial status
+        if (socket) socket.emit('register-role', { role: 'bus', name: name + ' (' + route + ')', status: myStatus });
+
+        // Hide modal reliably:
+        try {
+          // prefer stored instance
+          if (!registerModalInstance && typeof bootstrap !== 'undefined') {
+            registerModalInstance = new bootstrap.Modal(registerModalEl);
+          }
+          if (registerModalInstance && typeof registerModalInstance.hide === 'function') {
+            registerModalInstance.hide();
+          } else {
+            // fallback: remove 'show' / 'd-block' and remove backdrop nodes
+            registerModalEl.classList.remove('show', 'd-block');
+            document.body.classList.remove('modal-open');
+            // remove any leftover backdrops
+            document.querySelectorAll('.modal-backdrop').forEach(el => el.parentNode && el.parentNode.removeChild(el));
+          }
+        } catch (e) {
+          // last-resort cleanup
+          registerModalEl.classList.remove('show', 'd-block');
+          document.body.classList.remove('modal-open');
+          document.querySelectorAll('.modal-backdrop').forEach(el => el.parentNode && el.parentNode.removeChild(el));
+        }
+
+        renderControlsForRole('bus');
+
+        // try to start geolocation sharing if your other scripts expect it
+        try {
+          if (window.ByaHero && typeof window.ByaHero.startSharing === 'function') {
+            window.ByaHero.startSharing();
+          } else if (navigator.geolocation && typeof navigator.geolocation.watchPosition === 'function') {
+            // trigger a permission prompt (the actual tracking may be handled elsewhere)
+            navigator.geolocation.getCurrentPosition(() => { }, () => { }, { enableHighAccuracy: true });
+          }
+        } catch (e) { /* ignore */ }
+      });
+
+      // Socket handlers
+      if (socket) {
+        socket.on('connect', () => {
+          // request authoritative list right away
+          socket.emit('request-buses');
+        });
+
+        socket.on('assign-name', (name) => {
+          myName = myName || name;
+        });
+
+        socket.on('register-role-ok', (payload) => {
+          // payload has role, name, status (if server supports it)
+          if (payload && payload.name) myName = payload.name;
+          if (payload && payload.status) myStatus = payload.status;
+          renderControlsForRole(payload && payload.role ? payload.role : myRole);
+        });
+
+        socket.on('buses-updated', (payload) => {
+          handleBusesUpdated(payload);
+        });
+
+        socket.on('receive-location', (data) => {
+          // quick delta; request authoritative list so status is consistent
+          try { socket.emit('request-buses'); } catch (e) { }
+        });
+
+        socket.on('set-bus-status-ok', (payload) => {
+          // status was accepted by server
+          if (payload && payload.status) myStatus = payload.status;
+        });
+
+        // Fallback: initial list if server responds with buses-list
+        socket.on('buses-list', (payload) => {
+          handleBusesUpdated(payload);
+        });
+      }
+
+      // Initial UI default
+      renderControlsForRole('customer');
+
+    })();
+  </script>
+
+  <script src="/js/modal-fix.js"></script>
+
+  <script src="js/status-sync.js"></script>
+
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"
     integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI"
