@@ -1,4 +1,17 @@
 'use strict';
+/**
+ * Enhanced server.js for ByaHero
+ *
+ * - Keeps your original structure and features
+ * - Ensures status changes are broadcast to all clients immediately
+ * - Adds a per-bus "bus-updated" single-bus event (for lighter clients)
+ * - Ensures request-buses replies with both 'buses-list' (back-compat) and 'buses-updated'
+ * - Keeps simple in-memory users store as before
+ *
+ * Drop this file over your existing server.js (you already posted your current server; this
+ * preserves behavior and strengthens the broadcasting so customers see status changes immediately).
+ */
+
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
@@ -151,7 +164,28 @@ io.on("connection", (socket) => {
   // Add status field for buses ('available' or 'full' or undefined)
   users[socket.id] = { name: defaultName, role: null, lastLocation: null, lastSentAt: 0, status: "available" };
 
+  // Send assigned name to client
   socket.emit("assign-name", defaultName);
+
+  // Helper: broadcast authoritative full list + compatible single-bus update when appropriate
+  function broadcastFullList() {
+    const buses = getBusesList();
+    io.emit("buses-updated", { buses });
+    // Back-compat: some clients expect 'buses-list'
+    io.emit("buses-list", { buses });
+  }
+  function emitBusUpdatedToAll(busId) {
+    const u = users[busId];
+    if (!u) return;
+    if (!u.lastLocation) return;
+    const busPayload = {
+      id: busId,
+      name: u.name,
+      status: u.status || "available",
+      ...u.lastLocation
+    };
+    io.emit("bus-updated", { bus: busPayload });
+  }
 
   socket.on("register-role", (payload) => {
     const role = payload?.role;
@@ -180,8 +214,7 @@ io.on("connection", (socket) => {
     socket.emit("register-role-ok", { role: users[socket.id].role, name: users[socket.id].name, status: users[socket.id].status });
 
     // Broadcast authoritative list to all clients so they can reconcile
-    const buses = getBusesList();
-    io.emit("buses-updated", { buses });
+    broadcastFullList();
   });
 
   socket.on("list-registered-names", () => {
@@ -200,11 +233,18 @@ io.on("connection", (socket) => {
       socket.emit("set-bus-status-failed", "Invalid status");
       return;
     }
+
     users[socket.id].status = status;
-    // broadcast updated buses list
-    const buses = getBusesList();
-    io.emit("buses-updated", { buses });
+    users[socket.id].lastSentAt = Date.now();
+
+    // Acknowledge to the bus that requested the change
     socket.emit("set-bus-status-ok", { status });
+
+    // Broadcast updated buses list so all connected clients (customers) immediately see the change
+    broadcastFullList();
+
+    // Also emit a targeted "bus-updated" (single-bus) for lighter clients
+    emitBusUpdatedToAll(socket.id);
   });
 
   socket.on("send-location", (data) => {
@@ -235,7 +275,7 @@ io.on("connection", (socket) => {
 
     users[socket.id].lastLocation = payload;
 
-    // quick delta broadcast (includes current status)
+    // quick delta broadcast (includes current status) to other sockets (not the sender)
     socket.broadcast.emit("receive-location", {
       id: socket.id,
       name: users[socket.id].name,
@@ -244,8 +284,10 @@ io.on("connection", (socket) => {
     });
 
     // authoritative full list broadcast
-    const buses = getBusesList();
-    io.emit("buses-updated", { buses });
+    broadcastFullList();
+
+    // targeted update for this bus
+    emitBusUpdatedToAll(socket.id);
   });
 
   socket.on("disconnect", () => {
@@ -253,14 +295,17 @@ io.on("connection", (socket) => {
       console.log(`${users[socket.id].name} disconnected (${socket.id})`);
       delete users[socket.id];
       io.emit("user-disconnected", socket.id);
-      const buses = getBusesList();
-      io.emit("buses-updated", { buses });
+      // send authoritative list update to clients
+      broadcastFullList();
     }
   });
 
+  // Backwards compatible "request-buses" handler: return both events so clients listening
+  // for either 'buses-list' or 'buses-updated' work fine.
   socket.on("request-buses", () => {
     const buses = getBusesList();
     socket.emit("buses-list", { buses });
+    socket.emit("buses-updated", { buses });
   });
 });
 

@@ -258,13 +258,18 @@
       function renderControlsForRole(role) {
         infoSection.style.display = 'block';
         if (role === 'bus') {
-          modeTitle.innerHTML = '<strong>You: BUS (sharing GPS)</strong>';
+          // Removed the "YOU" style phrasing per request; leave modeTitle empty or set a neutral label
+          modeTitle.innerHTML = ''; // deliberately empty
+          // Determine initial badge text/class from current myStatus
+          const statusText = (myStatus === 'full') ? 'Full' : (myStatus === 'available' ? 'Available' : 'Unknown');
+          const statusClass = (myStatus === 'full') ? 'badge bg-danger' : (myStatus === 'available' ? 'badge bg-success' : 'badge bg-secondary');
+
           controlsEl.innerHTML = `
             <div class="btn-group">
               <button id="btn-available" class="btn btn-success">Seats Available</button>
               <button id="btn-full" class="btn btn-danger">Bus Full</button>
             </div>
-            <div class="mt-2"><span id="status-indicator" class="badge bg-success">Available</span>
+            <div class="mt-2"><span id="status-indicator" class="${statusClass}">${statusText}</span>
             <span id="registered-name" class="badge bg-info text-dark ms-2">--</span></div>
           `;
           // hook the new buttons
@@ -273,13 +278,18 @@
           const statusIndicator = document.getElementById('status-indicator');
           btnAvailable.addEventListener('click', () => {
             setMyStatus('available');
-            statusIndicator.textContent = 'Available';
-            statusIndicator.className = 'badge bg-success';
+            // setMyStatus updates the DOM, but keep these as a fallback if needed
+            if (statusIndicator) {
+              statusIndicator.textContent = 'Available';
+              statusIndicator.className = 'badge bg-success';
+            }
           });
           btnFull.addEventListener('click', () => {
             setMyStatus('full');
-            statusIndicator.textContent = 'Full';
-            statusIndicator.className = 'badge bg-danger';
+            if (statusIndicator) {
+              statusIndicator.textContent = 'Full';
+              statusIndicator.className = 'badge bg-danger';
+            }
           });
           const registeredNameEl = document.getElementById('registered-name');
           registeredNameEl.textContent = myName || '--';
@@ -290,11 +300,26 @@
       }
 
       function setMyStatus(status) {
-        if (!socket) return;
+        if (!socket) {
+          // Still update the local state & UI even if no socket, for local UX
+          doLocalStatusUpdate(status);
+          return;
+        }
         if (myRole !== 'bus') return;
         if (status !== 'available' && status !== 'full') return;
         myStatus = status;
         socket.emit('set-bus-status', { status });
+        // update UI immediately for responsive feedback
+        doLocalStatusUpdate(status);
+      }
+
+      function doLocalStatusUpdate(status) {
+        myStatus = status;
+        const statusIndicator = document.getElementById('status-indicator');
+        if (statusIndicator) {
+          statusIndicator.textContent = (status === 'full') ? 'Full' : 'Available';
+          statusIndicator.className = (status === 'full') ? 'badge bg-danger' : 'badge bg-success';
+        }
       }
 
       // Render list of buses in #live-users
@@ -464,7 +489,15 @@
 
         socket.on('set-bus-status-ok', (payload) => {
           // status was accepted by server
-          if (payload && payload.status) myStatus = payload.status;
+          if (payload && payload.status) {
+            myStatus = payload.status;
+            // update badge if present
+            const statusIndicator = document.getElementById('status-indicator');
+            if (statusIndicator) {
+              statusIndicator.textContent = (myStatus === 'full') ? 'Full' : 'Available';
+              statusIndicator.className = (myStatus === 'full') ? 'badge bg-danger' : 'badge bg-success';
+            }
+          }
         });
 
         // Fallback: initial list if server responds with buses-list
